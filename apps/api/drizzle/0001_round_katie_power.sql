@@ -1,0 +1,1 @@
+ALTER TABLE "votes" ADD CONSTRAINT "votes_payment_id_payments_id_fk" FOREIGN KEY ("payment_id") REFERENCES "public"."payments"("id") ON DELETE restrict ON UPDATE no action;
