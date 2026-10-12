@@ -1,5 +1,6 @@
 import {
   and,
+  asc,
   count,
   desc,
   eq,
@@ -29,6 +30,13 @@ const CREATOR_TYPE_CHARGES: Record<"community" | "featured", number> = {
   featured: Number(process.env.FEATURED_POLL_CHARGE_MINOR ?? 10000),
 };
 
+export function listPollTypes() {
+  return [
+    { id: "community", label: "Community", creatorChargeMinor: CREATOR_TYPE_CHARGES.community, currency: "KES" },
+    { id: "featured", label: "Featured", creatorChargeMinor: CREATOR_TYPE_CHARGES.featured, currency: "KES" },
+  ];
+}
+
 export interface PollInput {
   title: string;
   description?: string | null;
@@ -48,6 +56,7 @@ async function attachResults(
   rows: Array<typeof polls.$inferSelect & { creatorName: string }>,
   viewerId?: string,
   votedPollIdsOverride: Set<string> = new Set(),
+  ownerResults = false,
 ) {
   const ids = rows.map((poll) => poll.id);
   const viewerVotes =
@@ -77,7 +86,7 @@ async function attachResults(
   for (const option of options)
     byPoll.set(option.pollId, [...(byPoll.get(option.pollId) ?? []), option]);
   return rows.map((poll) => {
-    const includeVotes = canViewResults({
+    const includeVotes = ownerResults || canViewResults({
       visibility: poll.resultVisibility as
         | "public"
         | "after_vote"
@@ -139,6 +148,7 @@ export async function listPublicPolls(
     category?: string;
     pollType?: string;
     paid?: "true" | "false";
+    sort?: "recent" | "ending_soon";
     status: "published" | "closed";
   },
   viewerId?: string,
@@ -180,7 +190,12 @@ export async function listPublicPolls(
     .from(polls)
     .innerJoin(users, eq(users.id, polls.creatorId))
     .where(where)
-    .orderBy(desc(polls.isFeatured), desc(polls.createdAt))
+    .orderBy(
+      desc(polls.isFeatured),
+      ...(input.sort === "ending_soon"
+        ? [asc(polls.endsAt)]
+        : [desc(polls.createdAt)]),
+    )
     .limit(input.limit)
     .offset((input.page - 1) * input.limit);
   const data = await attachResults(
@@ -196,6 +211,59 @@ export async function listPublicPolls(
       total: Number(totalRow?.total ?? 0),
       pages: Math.ceil(Number(totalRow?.total ?? 0) / input.limit),
     },
+  };
+}
+
+export async function listCreatorPolls(
+  db: Database,
+  creatorId: string,
+  input: { page: number; limit: number; status?: "draft" | "published" | "closed" | "removed" },
+) {
+  const filters = [eq(polls.creatorId, creatorId)];
+  if (input.status) filters.push(eq(polls.status, input.status));
+  const where = and(...filters);
+  const [totalRow] = await db.select({ total: count() }).from(polls).where(where);
+  const rows = await db.select({ poll: polls, creatorName: users.displayName })
+    .from(polls)
+    .innerJoin(users, eq(users.id, polls.creatorId))
+    .where(where)
+    .orderBy(desc(polls.createdAt))
+    .limit(input.limit)
+    .offset((input.page - 1) * input.limit);
+  const data = await attachResults(
+    db,
+    rows.map((row) => ({ ...row.poll, creatorName: row.creatorName })),
+    creatorId,
+    new Set(),
+    true,
+  );
+  const total = Number(totalRow?.total ?? 0);
+  return { data, pagination: { page: input.page, limit: input.limit, total, pages: Math.ceil(total / input.limit) } };
+}
+
+export async function getCreatorAnalytics(db: Database, creatorId: string) {
+  const [counts] = await db
+    .select({
+      totalPolls: count(),
+      draftPolls: sql<number>`count(*) filter (where ${polls.status} = 'draft')::int`,
+      livePolls: sql<number>`count(*) filter (where ${polls.status} = 'published')::int`,
+      closedPolls: sql<number>`count(*) filter (where ${polls.status} = 'closed')::int`,
+    })
+    .from(polls)
+    .where(eq(polls.creatorId, creatorId));
+  const [voteTotals] = await db
+    .select({ totalVotes: count(votes.id) })
+    .from(votes)
+    .innerJoin(polls, eq(polls.id, votes.pollId))
+    .where(eq(polls.creatorId, creatorId));
+  const result = await listCreatorPolls(db, creatorId, { page: 1, limit: 100 });
+  return {
+    totalPolls: Number(counts?.totalPolls ?? 0),
+    draftPolls: Number(counts?.draftPolls ?? 0),
+    livePolls: Number(counts?.livePolls ?? 0),
+    closedPolls: Number(counts?.closedPolls ?? 0),
+    totalVotes: Number(voteTotals?.totalVotes ?? 0),
+    polls: result.data,
   };
 }
 
@@ -252,7 +320,7 @@ export async function createPoll(
 ) {
   const type = input.pollType ?? "community";
   const now = new Date();
-  return db.transaction(async (tx) => {
+  const created = await db.transaction(async (tx) => {
     const [poll] = await tx
       .insert(polls)
       .values({
@@ -282,6 +350,9 @@ export async function createPoll(
     );
     return poll;
   });
+  // Re-read through the DTO mapper so a create responds with the same shape as
+  // every other poll endpoint instead of the raw inserted row.
+  return getPoll(db, created.id, userId);
 }
 
 export async function updatePoll(
@@ -297,7 +368,27 @@ export async function updatePoll(
       "POLL_NOT_EDITABLE",
       "Only draft polls can be edited",
     );
-  return db.transaction(async (tx) => {
+  // A partial update only carries one of the two dates, so the pair has to be
+  // checked against what is already stored rather than against the request alone.
+  const nextStartsAt =
+    input.startsAt === undefined
+      ? poll.startsAt
+      : input.startsAt
+        ? new Date(input.startsAt)
+        : null;
+  const nextEndsAt =
+    input.endsAt === undefined
+      ? poll.endsAt
+      : input.endsAt
+        ? new Date(input.endsAt)
+        : null;
+  if (nextStartsAt && nextEndsAt && nextStartsAt >= nextEndsAt)
+    throw new HttpError(
+      400,
+      "INVALID_POLL_TIME_RANGE",
+      "Poll end time must be after its start time",
+    );
+  const result = await db.transaction(async (tx) => {
     const { options, startsAt, endsAt, ...fields } = input;
     const [updated] = await tx
       .update(polls)
@@ -325,6 +416,7 @@ export async function updatePoll(
     }
     return updated;
   });
+  return getPoll(db, result.id, userId);
 }
 
 export async function publishPoll(

@@ -237,6 +237,10 @@ export const votes = pgTable(
       onDelete: "restrict",
     }),
     idempotencyKey: text("idempotency_key").notNull(),
+    // Copied from the poll's voting policy at insert time. It exists so the
+    // partial unique index below can enforce "one vote per account" for
+    // account-limited polls without also forbidding repeat voting in open polls.
+    voterUnique: boolean("voter_unique").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -245,7 +249,7 @@ export const votes = pgTable(
     index("votes_poll_option_idx").on(table.pollId, table.optionId),
     uniqueIndex("votes_poll_voter_unique")
       .on(table.pollId, table.voterId)
-      .where(sql`${table.voterId} IS NOT NULL`),
+      .where(sql`${table.voterId} IS NOT NULL AND ${table.voterUnique}`),
     uniqueIndex("votes_poll_idempotency_unique").on(
       table.pollId,
       table.idempotencyKey,

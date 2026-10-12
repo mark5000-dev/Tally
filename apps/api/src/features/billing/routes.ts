@@ -45,6 +45,18 @@ export function createBillingRouter(db: Database): ExpressRouter {
       next(error);
     }
   });
+  router.get("/intents", async (request, response, next) => {
+    try {
+      response.json({
+        data: await billing.listPaymentIntents(
+          db,
+          assertAuthenticated(request).user.id,
+        ),
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
   router.get("/intents/:paymentId", async (request, response, next) => {
     try {
       const id = z.string().uuid().safeParse(request.params.paymentId);

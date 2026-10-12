@@ -7,6 +7,7 @@ import {
 import { HttpError } from "../../shared/errors.js";
 import {
   createPollSchema,
+  myPollListQuerySchema,
   pollIdSchema,
   pollListQuerySchema,
   reportSchema,
@@ -16,6 +17,22 @@ import * as polls from "./service.js";
 
 export function createPollsRouter(db: Database): ExpressRouter {
   const router = Router();
+  router.get("/types", (_request, response) => {
+    response.json({ data: polls.listPollTypes() });
+  });
+  router.get("/mine/analytics", requireAuth, async (request, response, next) => {
+    try {
+      response.json({ data: await polls.getCreatorAnalytics(db, assertAuthenticated(request).user.id) });
+    } catch (error) { next(error); }
+  });
+  router.get("/mine", requireAuth, async (request, response, next) => {
+    try {
+      const query = myPollListQuerySchema.safeParse(request.query);
+      if (!query.success) throw new HttpError(400, "INVALID_POLL_QUERY", "Poll filters are invalid", query.error.flatten());
+      const result = await polls.listCreatorPolls(db, assertAuthenticated(request).user.id, query.data);
+      response.json(result);
+    } catch (error) { next(error); }
+  });
   router.get("/", async (request, response, next) => {
     try {
       const query = pollListQuerySchema.safeParse(request.query);

@@ -92,6 +92,15 @@ export async function getPayment(
   return payment;
 }
 
+export async function listPaymentIntents(db: Database, userId: string) {
+  return db
+    .select()
+    .from(payments)
+    .where(eq(payments.userId, userId))
+    .orderBy(desc(payments.createdAt))
+    .limit(100);
+}
+
 export async function listLedger(
   db: Database,
   userId: string,

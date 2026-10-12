@@ -23,7 +23,7 @@ export function createVotesRouter(db: Database): ExpressRouter {
       if (!pollId.success)
         throw new HttpError(400, "INVALID_POLL_ID", "Poll ID must be a UUID");
       response.json({
-        data: await voteService.checkEligibility(db, {
+        data: await voteService.evaluateEligibility(db, {
           pollId: pollId.data,
           voterId: request.auth?.user.id,
         }),
@@ -132,6 +132,11 @@ export function createVotesRouter(db: Database): ExpressRouter {
         idempotencyKey: key.data,
       });
       const poll = await getPoll(db, pollId.data, request.auth?.user.id, true);
+      // castVote already proved the poll exists and is published, so this only
+      // fires if that invariant breaks. Spreading null would otherwise answer
+      // with a poll object stripped of every field.
+      if (!poll)
+        throw new HttpError(404, "POLL_NOT_FOUND", "Poll not found");
       response.status(replayed ? 200 : 201).json({
         data: { ...poll, vote, replayed },
       });

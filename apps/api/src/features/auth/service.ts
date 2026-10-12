@@ -14,12 +14,20 @@ import { sendAccountEmail } from "./mailer.js";
 const hashToken = (token: string) =>
   createHash("sha256").update(token).digest("hex");
 const newToken = () => randomBytes(32).toString("base64url");
+// Builds the account fields a caller may see. `login` reads the whole users row
+// in order to verify the password, so returning that row would put the argon2
+// hash in the response body; only these fields may leave the API.
 const publicUser = (user: {
   id: string;
   email: string;
   displayName: string;
   role: "member" | "admin";
-}) => user;
+}) => ({
+  id: user.id,
+  email: user.email,
+  displayName: user.displayName,
+  role: user.role,
+});
 
 function requestIp(request: { ip?: string }) {
   return request.ip ?? null;
