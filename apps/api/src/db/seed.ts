@@ -4,7 +4,7 @@ import { eq } from "drizzle-orm";
 import { createDatabase } from "./client.js";
 import { pollOptions, polls, users } from "./schema.js";
 
-const databaseUrl = process.env.DATABASE_URL;
+const databaseUrl = process.env.DATABASE_URL_UNPOOLED ?? process.env.DATABASE_URL;
 if (!databaseUrl)
   throw new Error("DATABASE_URL is required to seed the database");
 const { client, db } = createDatabase(databaseUrl);

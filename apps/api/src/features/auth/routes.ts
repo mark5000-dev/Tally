@@ -17,10 +17,26 @@ import {
 } from "./schema.js";
 import * as auth from "./service.js";
 
+// The session cookie has to survive the shape of the deployment. When the web
+// app and the API share a registrable domain — app.example.com talking to
+// api.example.com — every request is same-site and `lax` is both sufficient and
+// stricter. When they do not, which is what a Vercel web deployment calling a
+// Render API looks like, the browser classifies each call as cross-site and
+// withholds a `lax` cookie: sign-in would appear to succeed and then look
+// signed out on the very next request. `none` is the only setting that travels,
+// and browsers honour it only alongside `secure`, so the two move together.
+//
+// Set COOKIE_SAME_SITE=lax once both services share a domain.
+const cookieSameSite = (): "lax" | "none" | "strict" => {
+  const configured = process.env.COOKIE_SAME_SITE?.trim().toLowerCase();
+  if (configured === "lax" || configured === "none" || configured === "strict")
+    return configured;
+  return process.env.NODE_ENV === "production" ? "none" : "lax";
+};
 const baseCookieOptions = () => ({
   httpOnly: true,
-  secure: process.env.NODE_ENV === "production",
-  sameSite: "lax" as const,
+  secure: process.env.NODE_ENV === "production" || cookieSameSite() === "none",
+  sameSite: cookieSameSite(),
   path: "/",
 });
 const authLimiter = rateLimit({

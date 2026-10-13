@@ -362,6 +362,8 @@ Get qualified local advice on consumer disclosures, tax, privacy/data protection
 
 ## 8. Deployment and Operations
 
+The three components are hosted independently — the web app on Vercel, the API on Render, and PostgreSQL on Neon. Step-by-step instructions, environment variable reference, and the domain/cookie decision that governs whether sign-in works are in [DEPLOYMENT.md](DEPLOYMENT.md).
+
 ```mermaid
 flowchart LR
 	Dev[Developer branch] --> PR[Pull request]

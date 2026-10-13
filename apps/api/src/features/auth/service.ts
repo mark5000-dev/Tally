@@ -9,6 +9,7 @@ import {
   users,
 } from "../../db/schema.js";
 import { HttpError } from "../../shared/errors.js";
+import { createOriginAllowlist } from "../../shared/origins.js";
 import { sendAccountEmail } from "./mailer.js";
 
 const hashToken = (token: string) =>
@@ -34,8 +35,10 @@ function requestIp(request: { ip?: string }) {
 }
 
 function accountLink(path: string, token: string) {
-  const origin =
-    process.env.WEB_ORIGIN?.split(",")[0] ?? "http://localhost:3000";
+  // WEB_ORIGIN may hold several entries, including wildcards that stand for
+  // preview deployments. A wildcard is not something a recipient can click, so
+  // the allowlist hands back the first address that is a real host.
+  const origin = createOriginAllowlist().linkOrigin;
   return `${origin}${path}?token=${encodeURIComponent(token)}`;
 }
 
