@@ -1,0 +1,56 @@
+# Render Blueprint for the Tally API.
+#
+# Optional: everything here can be entered by hand in the Render dashboard
+# instead. If you do use it, create a new Blueprint instance from this
+# repository — Render validates the file when it applies, so a field this file
+# gets wrong is reported rather than silently ignored.
+#
+# Secrets are marked `sync: false`, which makes Render prompt for them instead
+# of reading them from the repository.
+services:
+  - type: web
+    name: tally-api
+    runtime: node
+    # Frankfurt is Render's closest region to Nairobi. Keep it consistent with
+    # the Neon region so every query does not cross an ocean.
+    region: frankfurt
+    plan: starter
+    branch: main
+    # The build runs from the repository root so that the workspace lockfile and
+    # the hoisted dependencies are the ones Bun resolves.
+    buildCommand: bun install --frozen-lockfile && bun run --cwd apps/api build
+    startCommand: bun run --cwd apps/api start
+    healthCheckPath: /health
+    # Migrations belong here so a failed migration stops the release instead of
+    # shipping code against a schema it does not match. Requires a paid instance
+    # type; on the free plan run `bun run db:migrate` from a workstation against
+    # the Neon URL before deploying instead.
+    # preDeployCommand: bun run --cwd apps/api db:migrate
+    envVars:
+      - key: BUN_VERSION
+        value: 1.3.14
+      - key: NODE_ENV
+        value: production
+      - key: TRUST_PROXY
+        value: "true"
+      # Set to "lax" instead once the web app and the API share a domain.
+      - key: COOKIE_SAME_SITE
+        value: none
+      - key: DATABASE_URL
+        sync: false
+      - key: WEB_ORIGIN
+        sync: false
+      - key: FEATURED_POLL_CHARGE_MINOR
+        value: "10000"
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: SMTP_FROM
+        sync: false
+      - key: ADMIN_EMAIL
+        sync: false
